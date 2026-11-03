@@ -86,3 +86,47 @@ jobs:
             release.sha256
           retention-days: 7
           compression-level: 0
+
+  deploy:
+    name: Deploy to the server
+    needs: build
+    # Only for main (a push or a manual run), never for pull requests.
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    # The secrets live in the "production" environment (lesson 15).
+    environment: production
+    # Never run two deploys at the same time: wait for the first to finish.
+    concurrency:
+      group: production
+      cancel-in-progress: false
+    steps:
+      - name: Download the release
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release
+
+      - name: Set up the SSH key
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+
+      # Sends the release and the app's settings (the secret APP_ENV,
+      # empty until lesson 17) together, in one bundle.
+      - name: Send the release to the server
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          APP_ENV: ${{ secrets.APP_ENV }}
+        run: |
+          printf '%s\n' "$APP_ENV" | tr -d '\r' > app.env
+          tar -cf - release.tar.gz app.env | ssh -i ~/.ssh/deploy_key -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            "deploy@$DEPLOY_HOST" "$GITHUB_SHA $(cat release.sha256)"
+
+      - name: Delete the SSH key and the settings
+        if: always()
+        run: rm -f ~/.ssh/deploy_key app.env
