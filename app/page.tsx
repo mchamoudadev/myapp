@@ -7,6 +7,7 @@ export default function Home() {
         <h1 className="text-4xl font-bold">Hello World</h1>
         <p>This is a test</p>
         <p>this is a second test hugo</p>
+        <h2>Ne wPull Request</h2>
       </main>
     </div>
   );
