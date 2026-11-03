@@ -7,5 +7,10 @@ export async function GET() {
   // Wait for a real request, so this is checked live and never cached.
   await connection();
 
+  // The app now needs an API key. Without it, report a problem.
+  if (!process.env.API_KEY) {
+    return Response.json({ status: "error", problem: "API_KEY is not set" }, { status: 503 });
+  }
+
   return Response.json({ status: "ok", time: new Date().toISOString() });
 }

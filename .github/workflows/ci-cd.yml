@@ -61,7 +61,7 @@ jobs:
 
       - name: Start the app and check that it answers
         run: |
-          npx next start -H 127.0.0.1 -p 3000 &
+          API_KEY=test-key-for-ci npx next start -H 127.0.0.1 -p 3000 &
           sleep 5
           curl --fail --silent --retry 10 --retry-delay 2 --retry-connrefused http://127.0.0.1:3000/api/health
           curl --fail --silent --output /dev/null http://127.0.0.1:3000/
