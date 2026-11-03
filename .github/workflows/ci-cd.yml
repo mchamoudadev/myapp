@@ -1,0 +1,88 @@
+# .github/workflows/ci-cd.yml
+#
+# Runs on every push and every pull request.
+#   Job 1 "build":  checks the code, builds the app, tests that it starts,
+#                   and packs it into release.tar.gz.
+#   Job 2 "deploy": sends release.tar.gz to the server (main branch only).
+#                   You add this job in lesson 15.
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# The workflow can read the repository and nothing more.
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build and test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Get the code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Node.js 24
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install packages
+        run: npm ci
+
+      - name: Check the code (lint)
+        run: npm run lint
+
+      - name: Check for known security problems
+        run: npm audit --omit=dev --audit-level=high
+
+      # Public settings for the browser (NEXT_PUBLIC_...), from the GitHub
+      # variable BUILD_ENV. Empty for now: lesson 20 shows how to use it.
+      - name: Write the public build settings
+        env:
+          BUILD_ENV: ${{ vars.BUILD_ENV }}
+        run: |
+          if [ -n "$BUILD_ENV" ]; then
+            printf '%s\n' "$BUILD_ENV" > .env.production
+          fi
+
+      - name: Build the app
+        run: npm run build
+
+      - name: Remove packages only needed for building
+        run: npm prune --omit=dev
+
+      - name: Start the app and check that it answers
+        run: |
+          npx next start -H 127.0.0.1 -p 3000 &
+          sleep 5
+          curl --fail --silent --retry 10 --retry-delay 2 --retry-connrefused http://127.0.0.1:3000/api/health
+          curl --fail --silent --output /dev/null http://127.0.0.1:3000/
+          echo "The app starts and answers."
+
+      # Pull requests are only checked. Only main is packed for the server.
+      - name: Pack the release
+        if: github.event_name != 'pull_request'
+        run: |
+          tar --exclude=./.git --exclude=./.next/cache -czf "$RUNNER_TEMP/release.tar.gz" .
+          mv "$RUNNER_TEMP/release.tar.gz" release.tar.gz
+          sha256sum release.tar.gz | cut -d ' ' -f 1 > release.sha256
+          echo "Packed release.tar.gz ($(du -h release.tar.gz | cut -f 1))"
+
+      - name: Save the release
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release
+          path: |
+            release.tar.gz
+            release.sha256
+          retention-days: 7
+          compression-level: 0
